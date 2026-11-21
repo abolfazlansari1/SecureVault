@@ -9,7 +9,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -29,6 +28,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -37,10 +37,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import org.json.JSONArray
 import org.json.JSONObject
+import java.security.SecureRandom
 import java.util.UUID
 
 data class VaultItem(
@@ -51,6 +55,16 @@ data class VaultItem(
     val secretOrBody: String,
     val extraNote: String
 )
+
+fun generateStrongPassword(length: Int = 16): String {
+    val chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#\$%^&*"
+    val random = SecureRandom()
+    return buildString(length) {
+        repeat(length) {
+            append(chars[random.nextInt(chars.length)])
+        }
+    }
+}
 
 class EncryptedVaultStore(context: Context) {
     private val masterKey = MasterKey.Builder(context)
@@ -116,6 +130,7 @@ class MainActivity : FragmentActivity() {
             VaultDarkTheme {
                 var isUnlocked by remember { mutableStateOf(false) }
                 var authError by remember { mutableStateOf<String?>(null) }
+                val lifecycleOwner = LocalLifecycleOwner.current
 
                 fun triggerBiometric() {
                     val biometricManager = BiometricManager.from(this@MainActivity)
@@ -142,29 +157,42 @@ class MainActivity : FragmentActivity() {
 
                                     override fun onAuthenticationFailed() {
                                         super.onAuthenticationFailed()
-                                        authError = "تطابق انجام نشد. دوباره تلاش کن."
+                                        authError = "Authentication failed. Please try again."
                                     }
                                 }
                             )
 
                             val promptInfo = BiometricPrompt.PromptInfo.Builder()
-                                .setTitle("قفل امنیتی SecureVault")
-                                .setSubtitle("اثر انگشت یا رمز قفل گوشی را وارد کن")
+                                .setTitle("Unlock SecureVault")
+                                .setSubtitle("Authenticate with fingerprint or device screen lock")
                                 .setAllowedAuthenticators(authenticators)
                                 .build()
 
                             prompt.authenticate(promptInfo)
                         }
                         else -> {
-                            // اگر قفل بیومتریک/رمزی روی دستگاه فعال نبود، اجازه ورود محلی داده می‌شود
-                            authError = "قفل بیومتریک یا رمز صفحه روی گوشی تنظیم نیست؛ ورود مستقیم انجام شد."
+                            authError = "No screen lock or biometric enrolled; unlocked locally."
                             isUnlocked = true
                         }
                     }
                 }
 
-                LaunchedEffect(Unit) {
-                    triggerBiometric()
+                DisposableEffect(lifecycleOwner) {
+                    val observer = LifecycleEventObserver { _, event ->
+                        if (event == Lifecycle.Event.ON_STOP) {
+                            isUnlocked = false
+                        }
+                    }
+                    lifecycleOwner.lifecycle.addObserver(observer)
+                    onDispose {
+                        lifecycleOwner.lifecycle.removeObserver(observer)
+                    }
+                }
+
+                LaunchedEffect(isUnlocked) {
+                    if (!isUnlocked) {
+                        triggerBiometric()
+                    }
                 }
 
                 if (!isUnlocked) {
@@ -188,14 +216,14 @@ fun VaultDarkTheme(content: @Composable () -> Unit) {
     val colorScheme = darkColorScheme(
         primary = Color(0xFF38BDF8),
         onPrimary = Color(0xFF06131A),
-        secondary = Color(0xFFA855F7),
-        background = Color(0xFF090B10),
-        surface = Color(0xFF111520),
-        surfaceVariant = Color(0xFF181D2B),
-        onBackground = Color(0xFFF3F4F6),
-        onSurface = Color(0xFFF3F4F6),
-        onSurfaceVariant = Color(0xFF9CA3AF),
-        outline = Color(0xFF262D40)
+        secondary = Color(0xFF818CF8),
+        background = Color(0xFF070A10),
+        surface = Color(0xFF0F1420),
+        surfaceVariant = Color(0xFF171E2E),
+        onBackground = Color(0xFFF8FAFC),
+        onSurface = Color(0xFFF8FAFC),
+        onSurfaceVariant = Color(0xFF94A3B8),
+        outline = Color(0xFF1E293B)
     )
 
     MaterialTheme(
@@ -214,7 +242,7 @@ fun LockScreen(
             .fillMaxSize()
             .background(
                 Brush.verticalGradient(
-                    colors = listOf(Color(0xFF090B10), Color(0xFF101729), Color(0xFF090B10))
+                    colors = listOf(Color(0xFF070A10), Color(0xFF0E172A), Color(0xFF070A10))
                 )
             )
             .padding(24.dp),
@@ -222,21 +250,22 @@ fun LockScreen(
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(18.dp)
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            modifier = Modifier.fillMaxWidth()
         ) {
             Box(
                 modifier = Modifier
-                    .size(92.dp)
+                    .size(96.dp)
                     .clip(CircleShape)
-                    .background(Color(0xFF151C2E))
-                    .border(1.5.dp, Color(0xFF38BDF8).copy(alpha = 0.6f), CircleShape),
+                    .background(Color(0xFF111C33))
+                    .border(1.5.dp, Color(0xFF38BDF8).copy(alpha = 0.65f), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = Icons.Filled.Fingerprint,
                     contentDescription = "Unlock",
                     tint = Color(0xFF38BDF8),
-                    modifier = Modifier.size(52.dp)
+                    modifier = Modifier.size(54.dp)
                 )
             }
 
@@ -244,15 +273,22 @@ fun LockScreen(
                 text = "SECURE VAULT",
                 color = Color.White,
                 fontSize = 24.sp,
-                fontWeight = FontWeight.Bold,
+                fontWeight = FontWeight.ExtraBold,
                 letterSpacing = 2.sp
             )
 
-            Text(
-                text = "دیتاهای رمزنگاری‌شده AES-256 • کاملاً آفلاین",
-                color = Color(0xFF9CA3AF),
-                fontSize = 13.sp
-            )
+            Surface(
+                shape = RoundedCornerShape(999.dp),
+                color = Color(0xFF111C33)
+            ) {
+                Text(
+                    text = "AES-256 ENCRYPTED • OFFLINE LOCAL STORAGE",
+                    color = Color(0xFF38BDF8),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                )
+            }
 
             if (errorMessage != null) {
                 Text(
@@ -261,6 +297,8 @@ fun LockScreen(
                     fontSize = 12.sp
                 )
             }
+
+            Spacer(Modifier.height(4.dp))
 
             Button(
                 onClick = onUnlockClick,
@@ -271,11 +309,11 @@ fun LockScreen(
                 ),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(50.dp)
+                    .height(52.dp)
             ) {
                 Icon(Icons.Filled.LockOpen, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
-                Text("باز کردن با اثر انگشت / رمز گوشی", fontWeight = FontWeight.SemiBold)
+                Text("Unlock with Biometrics / PIN", fontWeight = FontWeight.Bold, fontSize = 14.sp)
             }
         }
     }
@@ -294,6 +332,9 @@ fun VaultMainScreen(
     var showAddDialog by remember { mutableStateOf(false) }
     var editingItem by remember { mutableStateOf<VaultItem?>(null) }
 
+    val accountCount = remember(items) { items.count { it.type == "ACCOUNT" } }
+    val noteCount = remember(items) { items.count { it.type == "NOTE" } }
+
     val filteredItems = remember(items, selectedTab, searchQuery) {
         val targetType = if (selectedTab == 0) "ACCOUNT" else "NOTE"
         items.filter { item ->
@@ -301,7 +342,8 @@ fun VaultMainScreen(
                 searchQuery.isBlank() ||
                     item.title.contains(searchQuery, ignoreCase = true) ||
                     item.emailOrUser.contains(searchQuery, ignoreCase = true) ||
-                    item.extraNote.contains(searchQuery, ignoreCase = true)
+                    item.extraNote.contains(searchQuery, ignoreCase = true) ||
+                    (item.type == "NOTE" && item.secretOrBody.contains(searchQuery, ignoreCase = true))
                 )
         }
     }
@@ -309,44 +351,61 @@ fun VaultMainScreen(
     fun copyToClipboard(label: String, value: String) {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText(label, value))
-        Toast.makeText(context, "$label کپی شد", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, "$label copied", Toast.LENGTH_SHORT).show()
     }
 
     Scaffold(
-        containerColor = Color(0xFF090B10),
+        containerColor = Color(0xFF070A10),
         topBar = {
             TopAppBar(
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color(0xFF0D111A),
+                    containerColor = Color(0xFF0B101B),
                     titleContentColor = Color.White
                 ),
                 title = {
-                    Column {
-                        Text(
-                            text = "SecureVault",
-                            fontSize = 19.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "آفلاین • رمزنگاری AES-256",
-                            fontSize = 11.sp,
-                            color = Color(0xFF38BDF8)
-                        )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color(0xFF132238)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Security,
+                                contentDescription = null,
+                                tint = Color(0xFF38BDF8),
+                                modifier = Modifier.size(19.dp)
+                            )
+                        }
+                        Spacer(Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "SecureVault",
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Offline • AES-256",
+                                fontSize = 11.sp,
+                                color = Color(0xFF38BDF8)
+                            )
+                        }
                     }
                 },
                 actions = {
                     IconButton(onClick = onLockApp) {
                         Icon(
                             imageVector = Icons.Filled.Lock,
-                            contentDescription = "Lock",
-                            tint = Color(0xFF9CA3AF)
+                            contentDescription = "Lock Vault",
+                            tint = Color(0xFF94A3B8)
                         )
                     }
                 }
             )
         },
         floatingActionButton = {
-            FloatingActionButton(
+            ExtendedFloatingActionButton(
                 onClick = {
                     editingItem = null
                     showAddDialog = true
@@ -356,6 +415,11 @@ fun VaultMainScreen(
                 shape = RoundedCornerShape(16.dp)
             ) {
                 Icon(Icons.Filled.Add, contentDescription = "Add")
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = if (selectedTab == 0) "New Account" else "New Note",
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
     ) { innerPadding ->
@@ -365,25 +429,24 @@ fun VaultMainScreen(
                 .padding(innerPadding)
                 .padding(horizontal = 16.dp)
         ) {
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(12.dp))
 
-            // تب‌های اکانت‌ها و یادداشت‌ها
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(14.dp))
-                    .background(Color(0xFF121724))
+                    .background(Color(0xFF101624))
                     .padding(4.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 TabPill(
-                    text = "اکانت‌ها و پسوردها",
+                    text = "Accounts ($accountCount)",
                     selected = selectedTab == 0,
                     modifier = Modifier.weight(1f),
                     onClick = { selectedTab = 0 }
                 )
                 TabPill(
-                    text = "یادداشت‌های امن",
+                    text = "Notes ($noteCount)",
                     selected = selectedTab == 1,
                     modifier = Modifier.weight(1f),
                     onClick = { selectedTab = 1 }
@@ -392,26 +455,33 @@ fun VaultMainScreen(
 
             Spacer(Modifier.height(12.dp))
 
-            // باکس جستجو
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
-                placeholder = { Text("جستجو در عنوان، جیمیل یا یوزرنیم...", color = Color(0xFF6B7280), fontSize = 13.sp) },
-                leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null, tint = Color(0xFF9CA3AF)) },
+                placeholder = {
+                    Text(
+                        text = if (selectedTab == 0) "Search title, email, or username..." else "Search notes...",
+                        color = Color(0xFF64748B),
+                        fontSize = 13.sp
+                    )
+                },
+                leadingIcon = {
+                    Icon(Icons.Outlined.Search, contentDescription = null, tint = Color(0xFF94A3B8))
+                },
                 trailingIcon = {
                     if (searchQuery.isNotEmpty()) {
                         IconButton(onClick = { searchQuery = "" }) {
-                            Icon(Icons.Filled.Close, contentDescription = null, tint = Color(0xFF9CA3AF))
+                            Icon(Icons.Filled.Close, contentDescription = "Clear", tint = Color(0xFF94A3B8))
                         }
                     }
                 },
                 singleLine = true,
                 shape = RoundedCornerShape(14.dp),
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = Color(0xFF111520),
-                    unfocusedContainerColor = Color(0xFF111520),
+                    focusedContainerColor = Color(0xFF0F1420),
+                    unfocusedContainerColor = Color(0xFF0F1420),
                     focusedBorderColor = Color(0xFF38BDF8),
-                    unfocusedBorderColor = Color(0xFF1F2637),
+                    unfocusedBorderColor = Color(0xFF1E293B),
                     focusedTextColor = Color.White,
                     unfocusedTextColor = Color.White
                 ),
@@ -429,13 +499,13 @@ fun VaultMainScreen(
                         Icon(
                             imageVector = if (selectedTab == 0) Icons.Outlined.Key else Icons.Outlined.Description,
                             contentDescription = null,
-                            tint = Color(0xFF374151),
+                            tint = Color(0xFF334155),
                             modifier = Modifier.size(56.dp)
                         )
                         Spacer(Modifier.height(8.dp))
                         Text(
-                            text = if (selectedTab == 0) "هنوز اکانتی ثبت نشده است" else "هنوز یادداشتی ثبت نشده است",
-                            color = Color(0xFF6B7280),
+                            text = if (selectedTab == 0) "No saved accounts yet" else "No encrypted notes yet",
+                            color = Color(0xFF64748B),
                             fontSize = 14.sp
                         )
                     }
@@ -443,7 +513,7 @@ fun VaultMainScreen(
             } else {
                 LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
-                    contentPadding = PaddingValues(bottom = 84.dp)
+                    contentPadding = PaddingValues(bottom = 92.dp)
                 ) {
                     items(filteredItems, key = { it.id }) { item ->
                         VaultCard(
@@ -499,7 +569,7 @@ fun TabPill(
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(11.dp))
-            .background(if (selected) Color(0xFF1D273B) else Color.Transparent)
+            .background(if (selected) Color(0xFF1A253A) else Color.Transparent)
             .border(
                 width = if (selected) 1.dp else 0.dp,
                 color = if (selected) Color(0xFF38BDF8).copy(alpha = 0.5f) else Color.Transparent,
@@ -511,7 +581,7 @@ fun TabPill(
     ) {
         Text(
             text = text,
-            color = if (selected) Color.White else Color(0xFF9CA3AF),
+            color = if (selected) Color.White else Color(0xFF94A3B8),
             fontSize = 13.sp,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
         )
@@ -529,10 +599,10 @@ fun VaultCard(
 
     Card(
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF111520)),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF0F1420)),
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, Color(0xFF1E2638), RoundedCornerShape(16.dp))
+            .border(1.dp, Color(0xFF1E293B), RoundedCornerShape(16.dp))
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
             Row(
@@ -548,11 +618,11 @@ fun VaultCard(
                         modifier = Modifier
                             .size(38.dp)
                             .clip(RoundedCornerShape(10.dp))
-                            .background(Color(0xFF182235)),
+                            .background(Color(0xFF162238)),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = if (item.type == "ACCOUNT") Icons.Filled.Shield else Icons.Filled.EditNote,
+                            imageVector = if (item.type == "ACCOUNT") Icons.Filled.Key else Icons.Filled.Description,
                             contentDescription = null,
                             tint = Color(0xFF38BDF8),
                             modifier = Modifier.size(20.dp)
@@ -571,7 +641,7 @@ fun VaultCard(
 
                 Row {
                     IconButton(onClick = onEdit, modifier = Modifier.size(34.dp)) {
-                        Icon(Icons.Outlined.Edit, contentDescription = "Edit", tint = Color(0xFF9CA3AF), modifier = Modifier.size(18.dp))
+                        Icon(Icons.Outlined.Edit, contentDescription = "Edit", tint = Color(0xFF94A3B8), modifier = Modifier.size(18.dp))
                     }
                     IconButton(onClick = onDelete, modifier = Modifier.size(34.dp)) {
                         Icon(Icons.Outlined.Delete, contentDescription = "Delete", tint = Color(0xFFF87171), modifier = Modifier.size(18.dp))
@@ -587,19 +657,19 @@ fun VaultCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(10.dp))
-                        .background(Color(0xFF0C0F17))
+                        .background(Color(0xFF090D16))
                         .padding(horizontal = 10.dp, vertical = 8.dp)
                 ) {
                     Text(
                         text = item.emailOrUser,
-                        color = Color(0xFFD1D5DB),
+                        color = Color(0xFFE2E8F0),
                         fontSize = 13.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
                     )
                     IconButton(
-                        onClick = { onCopy("حساب / جیمیل", item.emailOrUser) },
+                        onClick = { onCopy("Username / Email", item.emailOrUser) },
                         modifier = Modifier.size(28.dp)
                     ) {
                         Icon(Icons.Outlined.ContentCopy, contentDescription = "Copy", tint = Color(0xFF38BDF8), modifier = Modifier.size(16.dp))
@@ -615,7 +685,7 @@ fun VaultCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(10.dp))
-                        .background(Color(0xFF0C0F17))
+                        .background(Color(0xFF090D16))
                         .padding(horizontal = 10.dp, vertical = 8.dp)
                 ) {
                     val displayedText = if (item.type == "ACCOUNT" && !revealSecret) {
@@ -625,9 +695,10 @@ fun VaultCard(
                     }
                     Text(
                         text = displayedText,
-                        color = Color(0xFFE5E7EB),
+                        color = Color(0xFFF1F5F9),
                         fontSize = 13.sp,
-                        maxLines = if (item.type == "NOTE") 6 else 1,
+                        fontFamily = if (item.type == "ACCOUNT") FontFamily.Monospace else FontFamily.Default,
+                        maxLines = if (item.type == "NOTE") 8 else 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
                     )
@@ -638,14 +709,14 @@ fun VaultCard(
                         ) {
                             Icon(
                                 imageVector = if (revealSecret) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
-                                contentDescription = "Toggle",
-                                tint = Color(0xFF9CA3AF),
+                                contentDescription = "Toggle Visibility",
+                                tint = Color(0xFF94A3B8),
                                 modifier = Modifier.size(16.dp)
                             )
                         }
                     }
                     IconButton(
-                        onClick = { onCopy(if (item.type == "ACCOUNT") "پسورد" else "یادداشت", item.secretOrBody) },
+                        onClick = { onCopy(if (item.type == "ACCOUNT") "Password" else "Note", item.secretOrBody) },
                         modifier = Modifier.size(28.dp)
                     ) {
                         Icon(Icons.Outlined.ContentCopy, contentDescription = "Copy", tint = Color(0xFF38BDF8), modifier = Modifier.size(16.dp))
@@ -657,7 +728,7 @@ fun VaultCard(
                 Spacer(Modifier.height(8.dp))
                 Text(
                     text = item.extraNote,
-                    color = Color(0xFF9CA3AF),
+                    color = Color(0xFF94A3B8),
                     fontSize = 12.sp
                 )
             }
@@ -681,11 +752,11 @@ fun VaultEditorDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = Color(0xFF121724),
+        containerColor = Color(0xFF101624),
         titleContentColor = Color.White,
         title = {
             Text(
-                text = if (initialItem != null) "ویرایش آیتم" else "افزودن آیتم جدید",
+                text = if (initialItem != null) "Edit Entry" else "Create Entry",
                 fontWeight = FontWeight.Bold,
                 fontSize = 18.sp
             )
@@ -696,19 +767,19 @@ fun VaultEditorDialog(
                     FilterChip(
                         selected = selectedType == "ACCOUNT",
                         onClick = { selectedType = "ACCOUNT" },
-                        label = { Text("اکانت") }
+                        label = { Text("Account") }
                     )
                     FilterChip(
                         selected = selectedType == "NOTE",
                         onClick = { selectedType = "NOTE" },
-                        label = { Text("یادداشت") }
+                        label = { Text("Note") }
                     )
                 }
 
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
-                    label = { Text("عنوان (مثلاً Gmail اصلی، Steam، یادداشت)") },
+                    label = { Text("Title (e.g. Gmail, GitHub, Recovery)") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -717,7 +788,7 @@ fun VaultEditorDialog(
                     OutlinedTextField(
                         value = emailOrUser,
                         onValueChange = { emailOrUser = it },
-                        label = { Text("جیمیل / یوزرنیم / آیدی") },
+                        label = { Text("Email / Username / Handle") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -725,15 +796,25 @@ fun VaultEditorDialog(
                     OutlinedTextField(
                         value = secretOrBody,
                         onValueChange = { secretOrBody = it },
-                        label = { Text("پسورد") },
+                        label = { Text("Password") },
                         singleLine = true,
                         visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
                         trailingIcon = {
-                            IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                                Icon(
-                                    imageVector = if (passwordVisible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
-                                    contentDescription = null
-                                )
+                            Row {
+                                IconButton(
+                                    onClick = {
+                                        secretOrBody = generateStrongPassword(16)
+                                        passwordVisible = true
+                                    }
+                                ) {
+                                    Icon(Icons.Outlined.AutoAwesome, contentDescription = "Generate Password", tint = Color(0xFF38BDF8))
+                                }
+                                IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                                    Icon(
+                                        imageVector = if (passwordVisible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                                        contentDescription = "Toggle Password"
+                                    )
+                                }
                             }
                         },
                         modifier = Modifier.fillMaxWidth()
@@ -742,7 +823,7 @@ fun VaultEditorDialog(
                     OutlinedTextField(
                         value = secretOrBody,
                         onValueChange = { secretOrBody = it },
-                        label = { Text("متن یادداشت امن") },
+                        label = { Text("Encrypted Note Content") },
                         minLines = 3,
                         maxLines = 6,
                         modifier = Modifier.fillMaxWidth()
@@ -752,7 +833,7 @@ fun VaultEditorDialog(
                 OutlinedTextField(
                     value = extraNote,
                     onValueChange = { extraNote = it },
-                    label = { Text("توضیح اضافه (اختیاری)") },
+                    label = { Text("Extra Tag / Remark (Optional)") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -766,7 +847,7 @@ fun VaultEditorDialog(
                             VaultItem(
                                 id = initialItem?.id ?: UUID.randomUUID().toString(),
                                 type = selectedType,
-                                title = title.ifBlank { if (selectedType == "ACCOUNT") "اکانت بدون عنوان" else "یادداشت" },
+                                title = title.ifBlank { if (selectedType == "ACCOUNT") "Untitled Account" else "Untitled Note" },
                                 emailOrUser = emailOrUser.trim(),
                                 secretOrBody = secretOrBody,
                                 extraNote = extraNote.trim()
@@ -779,12 +860,12 @@ fun VaultEditorDialog(
                     contentColor = Color(0xFF06131A)
                 )
             ) {
-                Text("ذخیره امن", fontWeight = FontWeight.Bold)
+                Text("Save Encrypted", fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("لغو", color = Color(0xFF9CA3AF))
+                Text("Cancel", color = Color(0xFF94A3B8))
             }
         }
     )
