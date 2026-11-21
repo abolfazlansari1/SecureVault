@@ -17,7 +17,12 @@ import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -44,6 +49,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -61,6 +68,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import kotlinx.coroutines.delay
 import org.json.JSONArray
 import org.json.JSONObject
 import java.nio.charset.StandardCharsets
@@ -81,7 +89,7 @@ data class VaultItem(
     val id: String,
     val type: String, // "ACCOUNT" or "NOTE"
     val title: String,
-    val password: String, // Required for ACCOUNT; note content for NOTE
+    val password: String, // Required for ACCOUNT; note body for NOTE
     val customFields: List<CustomField> = emptyList(),
     val extraNote: String = "",
     val createdAt: Long = System.currentTimeMillis()
@@ -424,8 +432,12 @@ class MainActivity : FragmentActivity() {
                 AnimatedContent(
                     targetState = isUnlocked,
                     transitionSpec = {
-                        (fadeIn(tween(240)) + slideInVertically(tween(240)) { it / 16 })
-                            .togetherWith(fadeOut(tween(180)) + slideOutVertically(tween(180)) { -it / 16 })
+                        (fadeIn(tween(320, easing = FastOutSlowInEasing)) +
+                            slideInVertically(tween(320, easing = FastOutSlowInEasing)) { it / 10 })
+                            .togetherWith(
+                                fadeOut(tween(220, easing = FastOutSlowInEasing)) +
+                                    slideOutVertically(tween(220, easing = FastOutSlowInEasing)) { -it / 10 }
+                            )
                     },
                     label = "LockTransition"
                 ) { unlocked ->
@@ -480,6 +492,19 @@ fun LockScreen(
     errorMessage: String?,
     onUnlockClick: () -> Unit
 ) {
+    var pulse by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            pulse = !pulse
+            delay(1100)
+        }
+    }
+    val ringScale by animateFloatAsState(
+        targetValue = if (pulse) 1.06f else 0.97f,
+        animationSpec = tween(1050, easing = FastOutSlowInEasing),
+        label = "RingPulse"
+    )
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -498,10 +523,11 @@ fun LockScreen(
         ) {
             Box(
                 modifier = Modifier
-                    .size(96.dp)
+                    .size(100.dp)
+                    .scale(ringScale)
                     .clip(CircleShape)
                     .background(Color(0xFF111C33))
-                    .border(1.5.dp, Color(0xFF38BDF8).copy(alpha = 0.65f), CircleShape),
+                    .border(1.5.dp, Color(0xFF38BDF8).copy(alpha = 0.7f), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -533,7 +559,11 @@ fun LockScreen(
                 )
             }
 
-            AnimatedVisibility(visible = errorMessage != null) {
+            AnimatedVisibility(
+                visible = errorMessage != null,
+                enter = fadeIn(tween(200)) + expandVertically(tween(200)),
+                exit = fadeOut(tween(150)) + shrinkVertically(tween(150))
+            ) {
                 Text(
                     text = errorMessage ?: "",
                     color = Color(0xFFF87171),
@@ -575,6 +605,7 @@ fun VaultMainScreen(
     var selectedTab by remember { mutableIntStateOf(0) } // 0: Accounts, 1: Notes
     var searchQuery by remember { mutableStateOf("") }
     var sortOrder by remember { mutableStateOf(SortOrder.NEWEST) }
+    var expandedCardId by remember { mutableStateOf<String?>(null) }
     var showAddDialog by remember { mutableStateOf(false) }
     var editingItem by remember { mutableStateOf<VaultItem?>(null) }
     var showSettingsSheet by remember { mutableStateOf(false) }
@@ -649,9 +680,10 @@ fun VaultMainScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
                             modifier = Modifier
-                                .size(34.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(Color(0xFF132238)),
+                                .size(36.dp)
+                                .clip(RoundedCornerShape(11.dp))
+                                .background(Color(0xFF132238))
+                                .border(1.dp, Color(0xFF38BDF8).copy(alpha = 0.25f), RoundedCornerShape(11.dp)),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
@@ -669,9 +701,9 @@ fun VaultMainScreen(
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "Offline • AES-256",
+                                text = "Tap any title to inspect",
                                 fontSize = 11.sp,
-                                color = Color(0xFF38BDF8)
+                                color = Color(0xFF94A3B8)
                             )
                         }
                     }
@@ -688,7 +720,7 @@ fun VaultMainScreen(
                         Icon(
                             imageVector = Icons.Filled.Lock,
                             contentDescription = "Lock Vault",
-                            tint = Color(0xFF94A3B8)
+                            tint = Color(0xFF38BDF8)
                         )
                     }
                 }
@@ -733,13 +765,19 @@ fun VaultMainScreen(
                     text = "Accounts ($accountCount)",
                     selected = selectedTab == 0,
                     modifier = Modifier.weight(1f),
-                    onClick = { selectedTab = 0 }
+                    onClick = {
+                        selectedTab = 0
+                        expandedCardId = null
+                    }
                 )
                 TabPill(
                     text = "Notes ($noteCount)",
                     selected = selectedTab == 1,
                     modifier = Modifier.weight(1f),
-                    onClick = { selectedTab = 1 }
+                    onClick = {
+                        selectedTab = 1
+                        expandedCardId = null
+                    }
                 )
             }
 
@@ -750,7 +788,7 @@ fun VaultMainScreen(
                 onValueChange = { searchQuery = it },
                 placeholder = {
                     Text(
-                        text = if (selectedTab == 0) "Search title, custom fields, or tags..." else "Search notes...",
+                        text = if (selectedTab == 0) "Search titles, fields, or tags..." else "Search note titles or content...",
                         color = Color(0xFF64748B),
                         fontSize = 13.sp
                     )
@@ -808,13 +846,17 @@ fun VaultMainScreen(
             AnimatedContent(
                 targetState = selectedTab,
                 transitionSpec = {
-                    fadeIn(tween(200)) togetherWith fadeOut(tween(150))
+                    (fadeIn(tween(240, easing = FastOutSlowInEasing)) +
+                        slideInVertically(tween(240, easing = FastOutSlowInEasing)) { it / 18 })
+                        .togetherWith(
+                            fadeOut(tween(180, easing = FastOutSlowInEasing)) +
+                                slideOutVertically(tween(180, easing = FastOutSlowInEasing)) { -it / 18 }
+                        )
                 },
                 label = "TabContent",
                 modifier = Modifier.fillMaxSize()
             ) { currentTab ->
-                val listForTab = remember(filteredItems, currentTab) { filteredItems }
-                if (listForTab.isEmpty()) {
+                if (filteredItems.isEmpty()) {
                     Box(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
@@ -837,18 +879,24 @@ fun VaultMainScreen(
                 } else {
                     LazyColumn(
                         verticalArrangement = Arrangement.spacedBy(10.dp),
-                        contentPadding = PaddingValues(bottom = 92.dp),
+                        contentPadding = PaddingValues(bottom = 96.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
-                        items(listForTab, key = { it.id }) { item ->
-                            VaultCard(
+                        items(filteredItems, key = { it.id }) { item ->
+                            val isExpanded = expandedCardId == item.id
+                            ExpandableVaultCard(
                                 item = item,
+                                expanded = isExpanded,
+                                onToggleExpand = {
+                                    expandedCardId = if (isExpanded) null else item.id
+                                },
                                 onCopy = { label, text -> copyToClipboard(label, text) },
                                 onEdit = {
                                     editingItem = item
                                     showAddDialog = true
                                 },
                                 onDelete = {
+                                    if (expandedCardId == item.id) expandedCardId = null
                                     val updated = items.filterNot { it.id == item.id }
                                     items = updated
                                     store.saveItems(updated)
@@ -861,7 +909,11 @@ fun VaultMainScreen(
         }
     }
 
-    if (showAddDialog) {
+    AnimatedVisibility(
+        visible = showAddDialog,
+        enter = fadeIn(tween(200)),
+        exit = fadeOut(tween(160))
+    ) {
         val defaultType = if (selectedTab == 0) "ACCOUNT" else "NOTE"
         VaultEditorDialog(
             initialItem = editingItem,
@@ -878,6 +930,7 @@ fun VaultMainScreen(
                     listOf(saved) + items
                 }
                 items = updated
+                expandedCardId = saved.id
                 store.saveItems(updated)
                 showAddDialog = false
                 editingItem = null
@@ -885,7 +938,11 @@ fun VaultMainScreen(
         )
     }
 
-    if (showSettingsSheet) {
+    AnimatedVisibility(
+        visible = showSettingsSheet,
+        enter = fadeIn(tween(200)),
+        exit = fadeOut(tween(160))
+    ) {
         VaultSettingsDialog(
             store = store,
             settings = settings,
@@ -897,6 +954,7 @@ fun VaultMainScreen(
             },
             onWipeItems = {
                 items = emptyList()
+                expandedCardId = null
                 store.wipeAllItems()
             },
             onDismiss = { showSettingsSheet = false }
@@ -911,13 +969,29 @@ fun TabPill(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
+    val bgColor by animateColorAsState(
+        targetValue = if (selected) Color(0xFF1A253A) else Color.Transparent,
+        animationSpec = tween(220),
+        label = "TabBg"
+    )
+    val borderColor by animateColorAsState(
+        targetValue = if (selected) Color(0xFF38BDF8).copy(alpha = 0.55f) else Color.Transparent,
+        animationSpec = tween(220),
+        label = "TabBorder"
+    )
+    val textColor by animateColorAsState(
+        targetValue = if (selected) Color.White else Color(0xFF94A3B8),
+        animationSpec = tween(220),
+        label = "TabText"
+    )
+
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(11.dp))
-            .background(if (selected) Color(0xFF1A253A) else Color.Transparent)
+            .background(bgColor)
             .border(
                 width = if (selected) 1.dp else 0.dp,
-                color = if (selected) Color(0xFF38BDF8).copy(alpha = 0.5f) else Color.Transparent,
+                color = borderColor,
                 shape = RoundedCornerShape(11.dp)
             )
             .clickable(onClick = onClick)
@@ -926,35 +1000,58 @@ fun TabPill(
     ) {
         Text(
             text = text,
-            color = if (selected) Color.White else Color(0xFF94A3B8),
+            color = textColor,
             fontSize = 13.sp,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
         )
     }
 }
 
 @Composable
-fun VaultCard(
+fun ExpandableVaultCard(
     item: VaultItem,
+    expanded: Boolean,
+    onToggleExpand: () -> Unit,
     onCopy: (String, String) -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
     var revealPassword by remember { mutableStateOf(false) }
+    val arrowRotation by animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMediumLow
+        ),
+        label = "ArrowRotation"
+    )
+    val cardBorderColor by animateColorAsState(
+        targetValue = if (expanded) Color(0xFF38BDF8).copy(alpha = 0.5f) else Color(0xFF1E293B),
+        animationSpec = tween(220),
+        label = "CardBorder"
+    )
 
     Card(
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF0F1420)),
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, Color(0xFF1E293B), RoundedCornerShape(16.dp))
-            .animateContentSize(animationSpec = tween(220))
+            .border(1.dp, cardBorderColor, RoundedCornerShape(16.dp))
+            .animateContentSize(
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = Spring.StiffnessMediumLow
+                )
+            )
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
+        Column(modifier = Modifier.fillMaxWidth()) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onToggleExpand)
+                    .padding(horizontal = 14.dp, vertical = 14.dp)
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -963,7 +1060,7 @@ fun VaultCard(
                     Box(
                         modifier = Modifier
                             .size(38.dp)
-                            .clip(RoundedCornerShape(10.dp))
+                            .clip(RoundedCornerShape(11.dp))
                             .background(Color(0xFF162238)),
                         contentAlignment = Alignment.Center
                     ) {
@@ -971,10 +1068,10 @@ fun VaultCard(
                             imageVector = if (item.type == "ACCOUNT") Icons.Filled.Key else Icons.Filled.Description,
                             contentDescription = null,
                             tint = Color(0xFF38BDF8),
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(19.dp)
                         )
                     }
-                    Spacer(Modifier.width(10.dp))
+                    Spacer(Modifier.width(12.dp))
                     Text(
                         text = item.title,
                         color = Color.White,
@@ -985,133 +1082,177 @@ fun VaultCard(
                     )
                 }
 
-                Row {
-                    IconButton(onClick = onEdit, modifier = Modifier.size(34.dp)) {
-                        Icon(Icons.Outlined.Edit, contentDescription = "Edit", tint = Color(0xFF94A3B8), modifier = Modifier.size(18.dp))
-                    }
-                    IconButton(onClick = onDelete, modifier = Modifier.size(34.dp)) {
-                        Icon(Icons.Outlined.Delete, contentDescription = "Delete", tint = Color(0xFFF87171), modifier = Modifier.size(18.dp))
-                    }
-                }
+                Icon(
+                    imageVector = Icons.Filled.ExpandMore,
+                    contentDescription = if (expanded) "Collapse" else "Expand",
+                    tint = if (expanded) Color(0xFF38BDF8) else Color(0xFF94A3B8),
+                    modifier = Modifier
+                        .size(22.dp)
+                        .rotate(arrowRotation)
+                )
             }
 
-            if (item.type == "ACCOUNT") {
-                Spacer(Modifier.height(8.dp))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
+            AnimatedVisibility(
+                visible = expanded,
+                enter = fadeIn(tween(220, easing = FastOutSlowInEasing)) +
+                    expandVertically(tween(260, easing = FastOutSlowInEasing)),
+                exit = fadeOut(tween(160, easing = FastOutSlowInEasing)) +
+                    shrinkVertically(tween(220, easing = FastOutSlowInEasing))
+            ) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(Color(0xFF090D16))
-                        .padding(horizontal = 10.dp, vertical = 8.dp)
+                        .padding(start = 14.dp, end = 14.dp, bottom = 14.dp)
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Password",
-                            color = Color(0xFF38BDF8),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Text(
-                            text = if (revealPassword) item.password else "••••••••••••",
-                            color = Color(0xFFF1F5F9),
-                            fontSize = 13.sp,
-                            fontFamily = FontFamily.Monospace,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                    IconButton(
-                        onClick = { revealPassword = !revealPassword },
-                        modifier = Modifier.size(28.dp)
-                    ) {
-                        Icon(
-                            imageVector = if (revealPassword) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
-                            contentDescription = "Toggle Password",
-                            tint = Color(0xFF94A3B8),
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
-                    IconButton(
-                        onClick = { onCopy("Password", item.password) },
-                        modifier = Modifier.size(28.dp)
-                    ) {
-                        Icon(Icons.Outlined.ContentCopy, contentDescription = "Copy", tint = Color(0xFF38BDF8), modifier = Modifier.size(16.dp))
-                    }
-                }
+                    HorizontalDivider(color = Color(0xFF1E293B))
 
-                item.customFields.filter { it.label.isNotBlank() || it.value.isNotBlank() }.forEach { field ->
-                    Spacer(Modifier.height(6.dp))
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(Color(0xFF090D16))
-                            .padding(horizontal = 10.dp, vertical = 8.dp)
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = field.label.ifBlank { "Custom Field" },
-                                color = Color(0xFF94A3B8),
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                            Text(
-                                text = field.value,
-                                color = Color(0xFFE2E8F0),
-                                fontSize = 13.sp,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                        if (field.value.isNotBlank()) {
+                    if (item.type == "ACCOUNT") {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(11.dp))
+                                .background(Color(0xFF090D16))
+                                .padding(horizontal = 12.dp, vertical = 10.dp)
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Password",
+                                    color = Color(0xFF38BDF8),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = if (revealPassword) item.password else "••••••••••••",
+                                    color = Color(0xFFF1F5F9),
+                                    fontSize = 13.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                             IconButton(
-                                onClick = { onCopy(field.label.ifBlank { "Field" }, field.value) },
-                                modifier = Modifier.size(28.dp)
+                                onClick = { revealPassword = !revealPassword },
+                                modifier = Modifier.size(30.dp)
                             ) {
-                                Icon(Icons.Outlined.ContentCopy, contentDescription = "Copy", tint = Color(0xFF38BDF8), modifier = Modifier.size(16.dp))
+                                Icon(
+                                    imageVector = if (revealPassword) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                                    contentDescription = "Toggle Password",
+                                    tint = Color(0xFF94A3B8),
+                                    modifier = Modifier.size(17.dp)
+                                )
+                            }
+                            IconButton(
+                                onClick = { onCopy("Password", item.password) },
+                                modifier = Modifier.size(30.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.ContentCopy,
+                                    contentDescription = "Copy Password",
+                                    tint = Color(0xFF38BDF8),
+                                    modifier = Modifier.size(17.dp)
+                                )
+                            }
+                        }
+
+                        item.customFields.filter { it.label.isNotBlank() || it.value.isNotBlank() }.forEach { field ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(11.dp))
+                                    .background(Color(0xFF090D16))
+                                    .padding(horizontal = 12.dp, vertical = 10.dp)
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = field.label.ifBlank { "Custom Field" },
+                                        color = Color(0xFF94A3B8),
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                    Text(
+                                        text = field.value,
+                                        color = Color(0xFFE2E8F0),
+                                        fontSize = 13.sp,
+                                        maxLines = 3,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                if (field.value.isNotBlank()) {
+                                    IconButton(
+                                        onClick = { onCopy(field.label.ifBlank { "Field" }, field.value) },
+                                        modifier = Modifier.size(30.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.ContentCopy,
+                                            contentDescription = "Copy Field",
+                                            tint = Color(0xFF38BDF8),
+                                            modifier = Modifier.size(17.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    } else if (item.password.isNotBlank()) {
+                        Row(
+                            verticalAlignment = Alignment.Top,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(11.dp))
+                                .background(Color(0xFF090D16))
+                                .padding(horizontal = 12.dp, vertical = 10.dp)
+                        ) {
+                            Text(
+                                text = item.password,
+                                color = Color(0xFFF1F5F9),
+                                fontSize = 13.sp,
+                                modifier = Modifier.weight(1f)
+                            )
+                            IconButton(
+                                onClick = { onCopy("Note", item.password) },
+                                modifier = Modifier.size(30.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.ContentCopy,
+                                    contentDescription = "Copy Note",
+                                    tint = Color(0xFF38BDF8),
+                                    modifier = Modifier.size(17.dp)
+                                )
                             }
                         }
                     }
-                }
-            } else if (item.password.isNotBlank()) {
-                Spacer(Modifier.height(8.dp))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(Color(0xFF090D16))
-                        .padding(horizontal = 10.dp, vertical = 8.dp)
-                ) {
-                    Text(
-                        text = item.password,
-                        color = Color(0xFFF1F5F9),
-                        fontSize = 13.sp,
-                        maxLines = 10,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
-                    )
-                    IconButton(
-                        onClick = { onCopy("Note", item.password) },
-                        modifier = Modifier.size(28.dp)
+
+                    if (item.extraNote.isNotBlank()) {
+                        Text(
+                            text = item.extraNote,
+                            color = Color(0xFF94A3B8),
+                            fontSize = 12.sp
+                        )
+                    }
+
+                    Row(
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Icon(Icons.Outlined.ContentCopy, contentDescription = "Copy", tint = Color(0xFF38BDF8), modifier = Modifier.size(16.dp))
+                        TextButton(onClick = onEdit) {
+                            Icon(Icons.Outlined.Edit, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFF38BDF8))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Edit", color = Color(0xFF38BDF8), fontSize = 12.sp)
+                        }
+                        Spacer(Modifier.width(4.dp))
+                        TextButton(onClick = onDelete) {
+                            Icon(Icons.Outlined.Delete, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFFF87171))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Delete", color = Color(0xFFF87171), fontSize = 12.sp)
+                        }
                     }
                 }
-            }
-
-            if (item.extraNote.isNotBlank()) {
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    text = item.extraNote,
-                    color = Color(0xFF94A3B8),
-                    fontSize = 12.sp
-                )
             }
         }
     }
@@ -1156,7 +1297,7 @@ fun VaultEditorDialog(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier
                     .verticalScroll(rememberScrollState())
-                    .animateContentSize()
+                    .animateContentSize(tween(220))
             ) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(
@@ -1180,7 +1321,7 @@ fun VaultEditorDialog(
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
-                    label = { Text("Title (e.g. Gmail, GitHub, Steam)") },
+                    label = { Text("Title (Shown on closed card)") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -1242,6 +1383,7 @@ fun VaultEditorDialog(
                                 .background(Color(0xFF0B0F19))
                                 .border(1.dp, Color(0xFF1E293B), RoundedCornerShape(12.dp))
                                 .padding(8.dp)
+                                .animateContentSize(tween(180))
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -1313,8 +1455,8 @@ fun VaultEditorDialog(
 
                 AnimatedVisibility(
                     visible = validationError != null,
-                    enter = fadeIn() + expandVertically(),
-                    exit = fadeOut() + shrinkVertically()
+                    enter = fadeIn(tween(180)) + expandVertically(tween(180)),
+                    exit = fadeOut(tween(150)) + shrinkVertically(tween(150))
                 ) {
                     Text(
                         text = validationError ?: "",
@@ -1397,7 +1539,7 @@ fun VaultSettingsDialog(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier
                     .verticalScroll(rememberScrollState())
-                    .animateContentSize()
+                    .animateContentSize(tween(220))
             ) {
                 Text("Auto-Lock Timer", color = Color(0xFF38BDF8), fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
