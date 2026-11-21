@@ -7,6 +7,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.PersistableBundle
 import android.util.Base64
 import android.view.WindowManager
 import android.widget.Toast
@@ -17,8 +18,6 @@ import androidx.biometric.BiometricPrompt
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -263,7 +262,6 @@ class EncryptedVaultStore(context: Context) {
                         )
                     }
                 }
-                // Backward compatibility with previous schema
                 val legacyEmailUser = obj.optString("emailOrUser", "")
                 if (legacyEmailUser.isNotBlank() && fields.none { it.label.equals("Email / User", true) }) {
                     fields.add(0, CustomField(label = "Email / User", value = legacyEmailUser))
@@ -609,7 +607,7 @@ fun VaultMainScreen(
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         val clip = ClipData.newPlainText(label, value).apply {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                description.extras = android.os.PersistableBundle().apply {
+                description.extras = PersistableBundle().apply {
                     putBoolean("android.content.extra.IS_SENSITIVE", true)
                 }
             }
@@ -845,14 +843,6 @@ fun VaultMainScreen(
                         items(listForTab, key = { it.id }) { item ->
                             VaultCard(
                                 item = item,
-                                modifier = Modifier.animateItem(
-                                    fadeInSpec = tween(220),
-                                    fadeOutSpec = tween(180),
-                                    placementSpec = spring(
-                                        dampingRatio = Spring.DampingRatioLowBouncy,
-                                        stiffness = Spring.StiffnessMediumLow
-                                    )
-                                ),
                                 onCopy = { label, text -> copyToClipboard(label, text) },
                                 onEdit = {
                                     editingItem = item
@@ -946,7 +936,6 @@ fun TabPill(
 @Composable
 fun VaultCard(
     item: VaultItem,
-    modifier: Modifier = Modifier,
     onCopy: (String, String) -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit
@@ -956,7 +945,7 @@ fun VaultCard(
     Card(
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF0F1420)),
-        modifier = modifier
+        modifier = Modifier
             .fillMaxWidth()
             .border(1.dp, Color(0xFF1E293B), RoundedCornerShape(16.dp))
             .animateContentSize(animationSpec = tween(220))
@@ -1007,7 +996,6 @@ fun VaultCard(
             }
 
             if (item.type == "ACCOUNT") {
-                // Always show required Password row
                 Spacer(Modifier.height(8.dp))
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -1053,7 +1041,6 @@ fun VaultCard(
                     }
                 }
 
-                // Dynamic user-defined fields
                 item.customFields.filter { it.label.isNotBlank() || it.value.isNotBlank() }.forEach { field ->
                     Spacer(Modifier.height(6.dp))
                     Row(
@@ -1199,7 +1186,6 @@ fun VaultEditorDialog(
                 )
 
                 if (selectedType == "ACCOUNT") {
-                    // Always present & required Password field
                     OutlinedTextField(
                         value = password,
                         onValueChange = {
@@ -1247,7 +1233,6 @@ fun VaultEditorDialog(
                         )
                     }
 
-                    // Dynamic custom inputs
                     customFields.forEachIndexed { index, field ->
                         Column(
                             verticalArrangement = Arrangement.spacedBy(6.dp),
